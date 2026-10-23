@@ -52,7 +52,10 @@ def config():
 def write_json(path, data):
     path = Path(path)
     temp = path.with_name(path.name + '.tmp')
-    temp.write_text(json.dumps(data, indent=2) + '\n')
+    with temp.open('w') as output:
+        output.write(json.dumps(data, indent=2) + '\n')
+        output.flush()
+        os.fsync(output.fileno())
     temp.replace(path)
 
 
@@ -194,7 +197,7 @@ def backup(destination=None):
             print('Saving configuration, credentials, documents, library, and maps...', flush=True)
             with tarfile.open(path / 'files.tar', 'w') as archive:
                 for name in ['.env', '.dockerignore', 'compose.json', 'nomad', 'INSTALLATION.txt',
-                             'Start NOMAD.command', 'Stop NOMAD.command', 'scripts', 'source']:
+                             'Start NOMAD.command', 'Stop NOMAD.command', 'scripts', 'source', 'recovery-kit']:
                     if (ROOT / name).exists():
                         archive.add(ROOT / name, arcname=name)
                 for p in (ROOT / 'state').iterdir():
@@ -211,6 +214,10 @@ def backup(destination=None):
                     if release.is_relative_to(ROOT / 'releases'):
                         archive.add(release, arcname=str(release.relative_to(ROOT)))
         # Hash the captured files after resuming apps; immutable snapshots no longer need downtime.
+        for captured in path.iterdir():
+            if captured.is_file():
+                with captured.open('rb+') as durable:
+                    os.fsync(durable.fileno())
         manifest['sha256'] = {p.name: sha(p) for p in path.iterdir() if p.is_file()}
         manifest['complete'] = True
         write_json(path / 'manifest.json', manifest)
@@ -337,18 +344,24 @@ def test_restore(path, candidate_image=None):
             # Exercise migrations against restored data, with no production
             # credentials, Docker socket, host mounts or inference connectivity.
             migration_env = stage / 'migration.env'
+            def address(name):
+                return docker('inspect', name, '--format',
+                              '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}', output=True).decode().strip()
             migration_env.write_text('\n'.join(f'{k}={v}' for k, v in {
                 'NODE_ENV': 'production', 'HOST': '0.0.0.0', 'PORT': '8080',
                 'URL': 'http://localhost:8080', 'LOG_LEVEL': 'info',
                 'APP_KEY': uuid.uuid4().hex + uuid.uuid4().hex,
-                'DB_HOST': names[0], 'DB_PORT': '3306', 'DB_DATABASE': 'nomad',
+                'DB_HOST': address(names[0]), 'DB_PORT': '3306', 'DB_DATABASE': 'nomad',
                 'DB_NAME': 'nomad', 'DB_USER': 'root', 'DB_PASSWORD': test_password,
-                'DB_SSL': 'false', 'REDIS_HOST': names[2], 'REDIS_PORT': '6379',
+                'DB_SSL': 'false', 'REDIS_HOST': address(names[2]), 'REDIS_PORT': '6379',
             }.items()) + '\n')
             migration_env.chmod(0o600)
-            docker('run', '--rm', '--network', network, '--env-file', migration_env,
-                   '--entrypoint', 'sh', candidate_image, '-c',
-                   'mkdir -p storage/logs && node ace migration:run --force && node ace db:seed', output=True)
+            result = subprocess.run(['docker', 'run', '--rm', '--network', network,
+                   '--env-file', str(migration_env), '--entrypoint', 'sh', candidate_image, '-c',
+                   'mkdir -p storage/logs && node ace migration:run --force && node ace db:seed'],
+                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            if result.returncode:
+                raise RuntimeError('Candidate migration check failed: ' + result.stdout.decode(errors='replace')[-4000:])
             after = table_counts(names[0])
             for name, count in manifest['tables'].items():
                 if name.startswith(('chat_', 'conversation')) and after.get(name) != count:
@@ -795,7 +808,7 @@ def restore_backup(path, safety_backup=True):
 
 def update(check_only=False, reapply=False):
     policy = json.loads(POLICY.read_text())
-    tag = policy.get('app_image_tag', 'ghcr.io/caweis/project-nomad-macos-arm64:edge')
+    tag = policy.get('app_image_tag', 'ghcr.io/ianderse/project-nomad-macos-arm64:edge')
     print('Checking the Mac port image...', flush=True)
     docker('pull', '--platform', 'linux/arm64', tag)
     candidate = json.loads(docker('image', 'inspect', tag, output=True))[0]
@@ -817,7 +830,7 @@ def update(check_only=False, reapply=False):
     if not source.exists():
         source.mkdir(parents=True)
         run(['git', '-C', source, 'init'], output=True)
-        run(['git', '-C', source, 'remote', 'add', 'origin', policy.get('source_repo', 'https://github.com/caweis/project-nomad.git')])
+        run(['git', '-C', source, 'remote', 'add', 'origin', policy.get('source_repo', 'https://github.com/ianderse/project-nomad.git')])
         run(['git', '-C', source, 'fetch', '--depth', '1', 'origin', revision])
         run(['git', '-C', source, 'checkout', '--detach', 'FETCH_HEAD'], output=True)
     if run(['git', '-C', source, 'rev-parse', 'HEAD'], output=True).decode().strip() != revision:
@@ -853,8 +866,10 @@ def update(check_only=False, reapply=False):
                           if ':/adapter' in v else v for v in adapter['volumes']]
     try:
         write_json(COMPOSE, updated)
-        dc('up', '-d', '--no-deps', '--force-recreate', 'ai-adapter', 'admin', 'worker')
+        dc('stop', 'worker')
+        dc('up', '-d', '--no-deps', '--force-recreate', 'ai-adapter', 'admin')
         wait_for(lambda: http('http://127.0.0.1:8080/api/health'))
+        dc('up', '-d', '--no-deps', '--force-recreate', 'worker')
         if not health():
             raise RuntimeError('Candidate failed readiness checks')
         write_json(ROOT / 'state/latest-update.json', {'at': dt.datetime.now(dt.timezone.utc).isoformat(),
