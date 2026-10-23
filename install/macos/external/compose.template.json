@@ -2,7 +2,7 @@
   "name": "project-nomad",
   "services": {
     "admin": {
-      "image": "ghcr.io/caweis/project-nomad-macos-arm64@sha256:efd446e082e85df7dd2c02737c87716adb2201b28ff8fc487b31f20ac9cded49",
+      "image": "ghcr.io/ianderse/project-nomad-macos-arm64@sha256:3aaed92948fe92bdc33f1d456dea4f16bdac1bfaa0ee254d02f0ab0869d4e8dc",
       "platform": "linux/arm64",
       "container_name": "nomad_admin",
       "restart": "unless-stopped",
@@ -224,7 +224,7 @@
       }
     },
     "worker": {
-      "image": "ghcr.io/caweis/project-nomad-macos-arm64@sha256:efd446e082e85df7dd2c02737c87716adb2201b28ff8fc487b31f20ac9cded49",
+      "image": "ghcr.io/ianderse/project-nomad-macos-arm64@sha256:3aaed92948fe92bdc33f1d456dea4f16bdac1bfaa0ee254d02f0ab0869d4e8dc",
       "platform": "linux/arm64",
       "container_name": "nomad_admin_worker",
       "restart": "unless-stopped",

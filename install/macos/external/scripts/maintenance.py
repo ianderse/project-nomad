@@ -210,9 +210,10 @@ def backup(destination=None):
                     release = Path(source).parents[4]
                     if release.is_relative_to(ROOT / 'releases'):
                         archive.add(release, arcname=str(release.relative_to(ROOT)))
-            manifest['sha256'] = {p.name: sha(p) for p in path.iterdir() if p.is_file()}
-            manifest['complete'] = True
-            write_json(path / 'manifest.json', manifest)
+        # Hash the captured files after resuming apps; immutable snapshots no longer need downtime.
+        manifest['sha256'] = {p.name: sha(p) for p in path.iterdir() if p.is_file()}
+        manifest['complete'] = True
+        write_json(path / 'manifest.json', manifest)
         check_backup(path)
         write_json(ROOT / 'state/latest-backup.json', {'path': str(path)})
         policy = json.loads(POLICY.read_text()) if POLICY.exists() else {}
@@ -267,7 +268,7 @@ def mirror_backup(path, destination):
     print('Network recovery copy verified: ' + str(final), flush=True)
 
 
-def test_restore(path):
+def test_restore(path, candidate_image=None):
     path = Path(path).resolve()
     manifest = check_backup(path)
     tag = 'nomad_restore_' + uuid.uuid4().hex[:10]
@@ -281,7 +282,8 @@ def test_restore(path):
     for name in ['qdrant.snapshot', 'redis.rdb']:
         shutil.copyfile(path / name, recovery / name)
     testenv = stage / 'mysql.env'
-    testenv.write_text('MYSQL_ROOT_PASSWORD=' + uuid.uuid4().hex + '\n')
+    test_password = uuid.uuid4().hex
+    testenv.write_text('MYSQL_ROOT_PASSWORD=' + test_password + '\n')
     testenv.chmod(0o600)
     services = manifest['compose']['services']
     docker('network', 'create', '--internal', network, output=True)
@@ -331,6 +333,26 @@ def test_restore(path):
         restored_keys = int(docker('exec', names[2], 'redis-cli', 'DBSIZE', output=True))
         if manifest['redis_keys'] and not restored_keys:
             raise RuntimeError('Redis restored without any keys')
+        if candidate_image:
+            # Exercise migrations against restored data, with no production
+            # credentials, Docker socket, host mounts or inference connectivity.
+            migration_env = stage / 'migration.env'
+            migration_env.write_text('\n'.join(f'{k}={v}' for k, v in {
+                'NODE_ENV': 'production', 'HOST': '0.0.0.0', 'PORT': '8080',
+                'URL': 'http://localhost:8080', 'LOG_LEVEL': 'info',
+                'APP_KEY': uuid.uuid4().hex + uuid.uuid4().hex,
+                'DB_HOST': names[0], 'DB_PORT': '3306', 'DB_DATABASE': 'nomad',
+                'DB_NAME': 'nomad', 'DB_USER': 'root', 'DB_PASSWORD': test_password,
+                'DB_SSL': 'false', 'REDIS_HOST': names[2], 'REDIS_PORT': '6379',
+            }.items()) + '\n')
+            migration_env.chmod(0o600)
+            docker('run', '--rm', '--network', network, '--env-file', migration_env,
+                   '--entrypoint', 'sh', candidate_image, '-c',
+                   'mkdir -p storage/logs && node ace migration:run --force && node ace db:seed', output=True)
+            after = table_counts(names[0])
+            for name, count in manifest['tables'].items():
+                if name.startswith(('chat_', 'conversation')) and after.get(name) != count:
+                    raise RuntimeError('Candidate migrations changed saved conversations: ' + name)
         with tarfile.open(path / 'files.tar') as archive:
             members = {m.name: m for m in archive.getmembers()}
             for name in ['.env', 'compose.json', 'state/omlx-key', 'nomad']:
@@ -345,6 +367,8 @@ def test_restore(path):
                   'sql_tables': len(manifest['tables']), 'qdrant_points': counts,
                   'redis_keys': restored_keys, 'configuration_and_documents': 'passed',
                   'qdrant_vectors_and_payloads': 'all readable'}
+        if candidate_image:
+            result['candidate_migrations_and_seed'] = candidate_image
         write_json(path / 'restore-test.json', result)
         print('Isolated restore passed: SQL tables, document vectors, Redis, credentials, and documents.', flush=True)
         return result
@@ -417,6 +441,8 @@ def health(verbose=True):
                     raise RuntimeError('Document index search returned no points')
         return '768-dimensional embeddings and document-index search passed'
     def library():
+        if sql("SELECT installed FROM services WHERE service_name='nomad_kiwix_server';").strip() != '1':
+            return 'Offline library not installed yet'
         with urllib.request.urlopen('http://127.0.0.1:8090/catalog/v2/entries', timeout=10) as r:
             data = r.read()
         if b'<entry>' not in data:
@@ -584,6 +610,8 @@ def check_maps():
                 raise RuntimeError('Map worker has the wrong MIME type')
             if hashlib.sha256(r.read()).hexdigest() != worker['sha256']:
                 raise RuntimeError('Map worker does not match the installed renderer')
+    if not any((ROOT / 'storage/maps/pmtiles').glob('*.pmtiles')):
+        return 'Map renderer worker verified; no offline regions downloaded yet'
     styles = http('http://127.0.0.1:8080/api/maps/styles')
     if styles.get('version') != 8 or not styles.get('layers'):
         raise RuntimeError('Map styles unavailable')
@@ -810,7 +838,7 @@ def update(check_only=False, reapply=False):
     frontend = prepare_map_frontend(digest, source)
     saved = backup()
     # Exercise database and vector restoration before touching the live deployment.
-    test_restore(saved)
+    test_restore(saved, candidate_image=digest)
     updated = json.loads(json.dumps(current))
     for service in ['admin', 'worker']:
         updated['services'][service]['image'] = digest
@@ -844,7 +872,7 @@ def main():
     sub = parser.add_subparsers(dest='command', required=True)
     p = sub.add_parser('backup'); p.add_argument('--destination')
     p = sub.add_parser('verify-backup'); p.add_argument('path')
-    p = sub.add_parser('test-restore'); p.add_argument('path')
+    p = sub.add_parser('test-restore'); p.add_argument('path'); p.add_argument('--candidate-image')
     p = sub.add_parser('backup-sync'); p.add_argument('path', nargs='?')
     sub.add_parser('check')
     sub.add_parser('migrate-qdrant')
@@ -859,7 +887,7 @@ def main():
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         if args.command == 'backup': backup(args.destination)
         elif args.command == 'verify-backup': check_backup(args.path); print('Backup checksums passed.')
-        elif args.command == 'test-restore': test_restore(args.path)
+        elif args.command == 'test-restore': test_restore(args.path, args.candidate_image)
         elif args.command == 'backup-sync':
             path = Path(args.path or json.loads((ROOT / 'state/latest-backup.json').read_text())['path'])
             destination = json.loads(POLICY.read_text())['backup_destination']

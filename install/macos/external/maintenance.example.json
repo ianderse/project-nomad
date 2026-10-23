@@ -4,6 +4,6 @@
   "backup_share": "smb://BACKUP-PC/Backups",
   "backup_server": "BACKUP-PC",
   "automatic_scheduling": false,
-  "app_image_tag": "ghcr.io/caweis/project-nomad-macos-arm64:edge",
-  "source_repo": "https://github.com/caweis/project-nomad.git"
+  "app_image_tag": "ghcr.io/ianderse/project-nomad-macos-arm64:edge",
+  "source_repo": "https://github.com/ianderse/project-nomad.git"
 }

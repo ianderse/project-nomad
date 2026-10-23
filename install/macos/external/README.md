@@ -15,11 +15,46 @@ The stock Mac installer elsewhere in this repository uses a different layout.
 - `.env.example`, `maintenance.example.json`, `model-map.example.json`: templates,
   with no deployed credentials, machine UUID, private server address, or model weights.
 
-This is an operations profile for an already provisioned Colima runtime, **not a
-complete fresh-Mac installer**. Provisioning the external Colima/Lima/Docker
-binaries and VM remains a prerequisite. The tested runtime used Colima 0.10.3,
-Lima 2.2.1, Docker 29.9.2 and Compose 5.6.1, with VZ/virtiofs, 4 CPUs, 8 GiB RAM,
-and a sparse 1000 GiB VM disk. Physical external free space remains a separate limit.
+## Fresh installation
+
+Install Apple's Command Line Tools and start an authenticated native oMLX server
+first. Clone this fork onto the external APFS drive, then run a read-only preflight
+with an unused installation folder:
+
+```sh
+python3 install/macos/external/bootstrap.py --root /Volumes/YOUR-DRIVE/project-nomad --plan
+```
+
+Install with the existing oMLX API key supplied in a private file:
+
+```sh
+python3 install/macos/external/bootstrap.py \
+  --root /Volumes/YOUR-DRIVE/project-nomad \
+  --omlx-key-file /path/to/private-key-file \
+  --chat-model YOUR_EXISTING_CHAT_MODEL --tasks-model YOUR_EXISTING_TASK_MODEL
+```
+
+`release-lock.json` pins the published application digest, matching source revision,
+Python base image, and official ARM64 Colima/Lima/Docker/Compose downloads with
+SHA-256 checksums. Downloads, extracted tools, caches, configuration, credentials,
+source and VM state stay under the selected external folder. No Homebrew install
+or Docker Desktop is required. The installer verifies the external APFS UUID,
+refuses a nonempty installation folder or a path too long for macOS VM sockets,
+creates fresh secrets, and never changes
+native oMLX configuration or loaded chat models. It downloads only the separate
+CPU embedding model. Add library and map content through NOMAD after installation.
+
+The VM defaults to VZ/virtiofs, 4 CPUs, 8 GiB RAM, and a sparse 1000 GiB disk limit;
+`--cpus`, `--memory`, and `--disk` override these allocations. External free space is
+a separate limit. No startup agent or automatic schedule is installed. A failed
+installation leaves `state/INSTALL-INCOMPLETE` for diagnosis and refuses to silently
+replace that partial installation on a rerun. Use another empty folder or inspect
+and remove only the failed installation's generated data before retrying.
+
+`--prepare-only` downloads and verifies tools/source and writes configuration for
+inspection without starting a VM; it intentionally leaves the incomplete marker.
+It is intended for installer verification, not for upgrading an existing install.
+For an existing installation, use the operations commands below.
 
 Keep deployment state outside this checkout. Under an external deployment root,
 the scripts expect `bin/`, `runtime/lima/`, `runtime/colima/`, `docker/`, `storage/`,
@@ -44,7 +79,7 @@ For a new deployment, expand `${NOMAD_ROOT}` and `${NOMAD_RELEASE_SOURCE}` in th
 Compose template into absolute external paths and save the result as `compose.json`.
 Keep credential substitutions (`${APP_KEY}`, `${DB_PASSWORD}`, etc.) as environment
 references. The release source must match the pinned admin image's OCI revision;
-the initial image corresponds to `6c6d095343a683bef731c42bbc0d3dbb8f8ea435`.
+see `release-lock.json` for the shipped revision/digest pair.
 The adapter Dockerfile expects that source checkout at `<root>/source` when built.
 Keep `.env` and the existing oMLX key at `state/omlx-key` private (mode 600).
 Create `state/model-map.json` from the empty example if no mapping is needed.
@@ -82,16 +117,17 @@ store no SMB password. A missing share does not become an internal fallback fold
 ```
 
 Backups briefly pause application containers for a consistent snapshot, then resume
-them before network copying. SQL, Qdrant, Redis, configuration, credentials and
+them before hashing and network copying. SQL, Qdrant, Redis, configuration, credentials and
 content are backed up; VM images and downloadable embedding weights are excluded.
 Transfers resume and verify SHA-256. `test-restore` uses isolated databases and
-indexes. `restore` replaces live state and first makes a rescue backup. No automatic
+indexes, including a full vector/payload read audit. During an update, candidate
+database migrations and seeders also run against the isolated restored database
+before live changes. `restore` replaces live state and first makes a rescue backup. No automatic
 backup/update schedule is enabled.
 
 Updates pin an ARM64 image digest, check out its matching source, build a matching
 adapter, prepare any compatibility frontend, create and test a recovery backup,
-then apply and check readiness. The example tracks the known upstream image until
-this fork publishes a replacement; `app_image_tag` and `source_repo` select a
+then apply and check readiness. The example tracks this fork's published image; `app_image_tag` and `source_repo` select a
 different image/source pair together.
 
 ## Map repairs
@@ -123,3 +159,14 @@ The startup preload supplies a missing worker and reports virtiofs content capac
 using its fundamental fragment size. Readiness checks worker MIME/hash, glyphs,
 sprites and a decoded regional vector tile. WebKit/Chromium checks also exercised
 street labels, zooming, dragging, and saved camera state on the live deployment.
+
+## Windows backup verification
+
+Copy `Verify-NOMAD-Backups.cmd` and `.ps1` beside the backup directories on the
+Windows PC and double-click the CMD file there. It checks the newest backup's
+archive and database/index snapshots against its manifest using the Windows filesystem, then
+saves `NOMAD-backup-hash-results.json` and `.txt` beside the script. This is useful
+when diagnosing a disagreement between a Mac SMB read and the stored server file.
+The script changes only those reports; it never repairs or replaces a backup.
+A failed checksum must remain a failed backup until a valid copy is made.
+Pass `-AllBackups` to the PowerShell script to check older generations too.
