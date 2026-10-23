@@ -170,3 +170,14 @@ when diagnosing a disagreement between a Mac SMB read and the stored server file
 The script changes only those reports; it never repairs or replaces a backup.
 A failed checksum must remain a failed backup until a valid copy is made.
 Pass `-AllBackups` to the PowerShell script to check older generations too.
+
+## Drive sleep and disconnects
+
+If an external drive disconnects, preserve a recovery copy before repairing its
+filesystem. Check the Mac disk-sleep timer with `pmset -g custom`; disable that
+timer with `sudo pmset -a disksleep 0` using Mac administrator authentication.
+Some Mac Studio versions do not show this control in System Settings. Disabling
+the timer removes one possible trigger; cable, port, enclosure and filesystem
+problems still need separate diagnosis. [Sabrent
+troubleshooting](https://sabrent.com/blogs/troubleshooting/connection-and-power-problems)
+also recommends disabling disk sleep when investigating connection drops.
