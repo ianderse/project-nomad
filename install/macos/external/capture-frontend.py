@@ -19,6 +19,7 @@ files = [
     'inertia/pages/settings/system.tsx',
     'types/system.ts',
     'vite.config.ts',
+    'vite/maplibre_worker.ts',
 ]
 if not (args.root / 'compose.json').is_file():
     raise SystemExit('Select an existing external-profile deployment root')

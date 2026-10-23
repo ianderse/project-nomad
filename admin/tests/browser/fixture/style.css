@@ -1,0 +1,3 @@
+@import '../../../inertia/css/app.css';
+@source '../../../inertia/components';
+@source './main.jsx';

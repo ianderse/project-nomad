@@ -1,7 +1,7 @@
 name: Build macOS-distribution admin image
 
 # Builds the admin Docker image for the macOS-distribution lineage and
-# pushes it to ghcr.io/caweis/project-nomad-macos-arm64. Multi-arch
+# pushes it to ghcr.io/<fork-owner>/project-nomad-macos-arm64. Multi-arch
 # (linux/amd64,linux/arm64) so the same image works on Rosetta-backed
 # Docker Desktop and arm64-native OrbStack/colima.
 #
@@ -50,6 +50,39 @@ env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/project-nomad-macos-arm64
 
 jobs:
+  validate:
+    name: Validate source and browser regressions
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: admin
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm run test:standalone
+      - run: python3 -m unittest discover -s install/macos/external/tests -v
+        working-directory: .
+      - run: npx playwright install --with-deps chromium webkit
+      - run: npm run test:browser
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-regression-failures
+          path: |
+            admin/playwright-report/
+            admin/test-results/
+          retention-days: 7
   # ── Stage 1: compute the tags + version label once, shared by build + merge ─
   meta:
     name: Compute tags and version
@@ -129,7 +162,7 @@ jobs:
   # ── Stage 2: build each arch on its OWN native runner, push by digest ───────
   build:
     name: Build ${{ matrix.platform }}
-    needs: meta
+    needs: [meta, validate]
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -173,6 +206,7 @@ jobs:
             VERSION=${{ needs.meta.outputs.version }}
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
             VCS_REF=${{ github.sha }}
+            SOURCE_URL=https://github.com/${{ github.repository }}
           # Push the single-arch image by DIGEST only (no tags here); the merge
           # job assembles the tagged multi-arch manifest from both digests.
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true

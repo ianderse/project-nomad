@@ -52,7 +52,7 @@ def prepare(image, source):
     overlay_hash = hashlib.sha256()
     for p in overlays:
         relative = p.relative_to(overlay_root)
-        if not (str(relative).startswith(('inertia/', 'types/')) or str(relative) == 'vite.config.ts'):
+        if not (str(relative).startswith(('inertia/', 'types/', 'vite/')) or str(relative) == 'vite.config.ts'):
             raise RuntimeError('Unexpected frontend override path: ' + str(relative))
         overlay_hash.update(str(relative).encode() + b'\0' + p.read_bytes())
     overlay_id = overlay_hash.hexdigest()[:16] if overlays else None
@@ -86,6 +86,7 @@ def prepare(image, source):
         for directory in ['inertia', 'types']:
             run('docker', 'cp', source / 'admin' / directory, name + ':/app/' + directory)
         for p in overlays:
+            run('docker', 'exec', name, 'mkdir', '-p', '/app/' + str(p.relative_to(overlay_root).parent))
             run('docker', 'cp', p, name + ':/app/' + str(p.relative_to(overlay_root)))
         run('docker', 'cp', package, name + ':/tmp/map-wrapper.tgz')
         run('docker', 'cp', config_package, name + ':/tmp/tsconfig.tgz')

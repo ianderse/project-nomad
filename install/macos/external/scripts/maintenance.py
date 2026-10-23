@@ -258,6 +258,8 @@ def mirror_backup(path, destination):
                 if time.monotonic() - last >= 10:
                     print(f'Copying {source.name}: {copied // (1024 * 1024)} / {source.stat().st_size // (1024 * 1024)} MiB', flush=True)
                     last = time.monotonic()
+            out.flush()
+            os.fsync(out.fileno())  # Request durable server-side storage before verification/rename.
         temp.replace(target)
     check_backup(partial)
     partial.rename(final)
@@ -308,6 +310,12 @@ def test_restore(path):
         counts = wait_for(lambda: qcounts('http://' + names[1] + ':6333', names[3]))
         if counts != manifest['qdrant_points']:
             raise RuntimeError('Restored Qdrant point counts do not match')
+        # Counts alone cannot detect a corrupt compressed text payload.
+        docker('cp', ROOT / 'scripts/index_audit.py', names[3] + ':/tmp/index_audit.py', quiet=True)
+        for collection in counts:
+            url = 'http://' + names[1] + ':6333/collections/' + urllib.parse.quote(collection, safe='')
+            docker('exec', names[3], 'python', '/tmp/index_audit.py', '--url', url,
+                   '--output', '/tmp/audit-' + uuid.uuid4().hex[:8], output=True)
         docker('run', '--rm', '--network', 'none', '--entrypoint', 'sh',
                '-v', volumes[2] + ':/data', '-v', str(recovery) + ':/recovery:ro',
                services['redis']['image'], '-c', 'cp /recovery/redis.rdb /data/dump.rdb; chown -R redis:redis /data')
@@ -335,7 +343,8 @@ def test_restore(path):
                         pass
         result = {'backup': str(path), 'verified_at': dt.datetime.now(dt.timezone.utc).isoformat(),
                   'sql_tables': len(manifest['tables']), 'qdrant_points': counts,
-                  'redis_keys': restored_keys, 'configuration_and_documents': 'passed'}
+                  'redis_keys': restored_keys, 'configuration_and_documents': 'passed',
+                  'qdrant_vectors_and_payloads': 'all readable'}
         write_json(path / 'restore-test.json', result)
         print('Isolated restore passed: SQL tables, document vectors, Redis, credentials, and documents.', flush=True)
         return result

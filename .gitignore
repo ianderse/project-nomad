@@ -72,3 +72,5 @@ __pycache__/
 
 # External Colima deployment state belongs outside the source checkout.
 /install/macos/external/local/
+/admin/playwright-report/
+/admin/test-results/
