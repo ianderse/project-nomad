@@ -181,3 +181,35 @@ the timer removes one possible trigger; cable, port, enclosure and filesystem
 problems still need separate diagnosis. [Sabrent
 troubleshooting](https://sabrent.com/blogs/troubleshooting/connection-and-power-problems)
 also recommends disabling disk sleep when investigating connection drops.
+
+## Windows SSH recovery transport
+
+If SMB reads disagree with Windows-native hashes, use an existing Windows
+OpenSSH service for backup transfers and verification. The backup account needs
+read/write access to its local backup folder. In `state/maintenance.json`, set
+`backup_transport` to `ssh` and configure `backup_ssh.host`, `user`, and
+`remote_path` (the Windows drive path, for example
+`G:\Backups\Project-NOMAD`). Keep the password in macOS Keychain by signing
+into that same server/account in Finder and saving it there. Keychain may ask
+permission for the SSH credential helper; the Windows password never enters command-line
+arguments, configuration files or backup archives. Host keys are recorded under
+`state/ssh-known-hosts`.
+
+Uploads use SFTP, flush the staged files on Windows, verify uncached Windows-native SHA-256
+hashes, then publish the backup directory. Restore downloads use the same
+encrypted SSH connection and an uncached Windows file reader, with stream hashes
+checked before files are promoted. The original tar/SQL/Qdrant/Redis format is
+retained. No additional Windows service is installed by these scripts.
+
+```sh
+./nomad backup
+./nomad backup-fetch BACKUP_ID
+./nomad test-restore /Volumes/YOUR-DRIVE/project-nomad/backups/fetched-ID
+./nomad restore /Volumes/YOUR-DRIVE/project-nomad/backups/fetched-ID
+```
+
+`backup-fetch` prints its actual local destination; `--destination` chooses a
+new empty folder. An interrupted or mismatched transfer keeps an `INCOMPLETE`
+marker and cannot be restored. Data restore retains the installed maintenance
+client, so snapshots predating SSH support do not downgrade the recovery tools.
+The independent Windows CMD checker remains useful for inspecting copies on the PC.

@@ -5,5 +5,11 @@
   "backup_server": "BACKUP-PC",
   "automatic_scheduling": false,
   "app_image_tag": "ghcr.io/ianderse/project-nomad-macos-arm64:edge",
-  "source_repo": "https://github.com/ianderse/project-nomad.git"
+  "source_repo": "https://github.com/ianderse/project-nomad.git",
+  "backup_transport": "smb",
+  "backup_ssh": {
+    "host": "BACKUP-PC",
+    "user": "backup",
+    "remote_path": "G:\\Backups\\Project-NOMAD"
+  }
 }

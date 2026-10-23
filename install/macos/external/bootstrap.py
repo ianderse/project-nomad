@@ -169,6 +169,7 @@ def install(args, lock, storage):
             shutil.copytree(src, dst, ignore=shutil.ignore_patterns('__pycache__'))
         else:
             shutil.copy2(src, dst)
+    shutil.copytree(PROFILE, root / 'recovery-kit', ignore=shutil.ignore_patterns('__pycache__'))
     (root / 'nomad').chmod(0o700)
     shutil.copy2(PROFILE / 'dockerignore.template', root / '.dockerignore')
     write_json(root / 'state/toolchain-lock.json', lock)

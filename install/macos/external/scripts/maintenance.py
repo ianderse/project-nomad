@@ -225,8 +225,8 @@ def backup(destination=None):
         write_json(ROOT / 'state/latest-backup.json', {'path': str(path)})
         policy = json.loads(POLICY.read_text()) if POLICY.exists() else {}
         target = destination or policy.get('backup_destination')
-        if target:
-            mirror_backup(path, Path(target))
+        if target or policy.get('backup_transport') == 'ssh':
+            mirror_backup(path, Path(target) if target else None)
         print('Recovery backup: ' + str(path), flush=True)
         return path
     except BaseException:
@@ -238,6 +238,17 @@ def backup(destination=None):
 def mirror_backup(path, destination):
     # Never create a directory in place of an unmounted SMB share.
     policy = json.loads(POLICY.read_text()) if POLICY.exists() else {}
+    if policy.get('backup_transport') == 'ssh':
+        from windows_backup import WindowsBackup
+        remote = WindowsBackup(ROOT, policy['backup_ssh'])
+        name = remote.mirror(path)
+        write_json(ROOT / 'state/latest-network-backup.json', {
+            'path': remote.remote_root + '\\' + name, 'backup_id': name,
+            'transport': 'ssh', 'remote_path': remote.remote_root + '\\' + name,
+            'verified_sha256': True, 'verification_source': 'Uncached Windows-native SHA-256 over SSH',
+        })
+        print('Windows recovery copy verified through SSH: ' + name, flush=True)
+        return
     mountpoint = policy.get('backup_mount')
     if mountpoint and not os.path.ismount(mountpoint):
         raise RuntimeError('Recovery share is not mounted: ' + mountpoint + '. Local backup is complete.')
@@ -889,6 +900,7 @@ def main():
     p = sub.add_parser('verify-backup'); p.add_argument('path')
     p = sub.add_parser('test-restore'); p.add_argument('path'); p.add_argument('--candidate-image')
     p = sub.add_parser('backup-sync'); p.add_argument('path', nargs='?')
+    p = sub.add_parser('backup-fetch'); p.add_argument('backup'); p.add_argument('--destination')
     sub.add_parser('check')
     sub.add_parser('migrate-qdrant')
     sub.add_parser('repair-maps')
@@ -905,8 +917,16 @@ def main():
         elif args.command == 'test-restore': test_restore(args.path, args.candidate_image)
         elif args.command == 'backup-sync':
             path = Path(args.path or json.loads((ROOT / 'state/latest-backup.json').read_text())['path'])
-            destination = json.loads(POLICY.read_text())['backup_destination']
-            check_backup(path); mirror_backup(path, Path(destination))
+            destination = json.loads(POLICY.read_text()).get('backup_destination')
+            check_backup(path); mirror_backup(path, Path(destination) if destination else None)
+        elif args.command == 'backup-fetch':
+            from windows_backup import WindowsBackup
+            policy = json.loads(POLICY.read_text())
+            target = Path(args.destination) if args.destination else ROOT / 'backups' / ('fetched-' + stamp())
+            remote = WindowsBackup(ROOT, policy['backup_ssh'])
+            remote.fetch(args.backup, target)
+            check_backup(target)
+            print('Retrieved and verified Windows recovery backup: ' + str(target), flush=True)
         elif args.command == 'check':
             if not health(): raise SystemExit(1)
         elif args.command == 'migrate-qdrant': migrate_qdrant()

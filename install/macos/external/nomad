@@ -44,7 +44,7 @@ case "${1:-status}" in
   open)
     open http://localhost:8080
     ;;
-  check|backup|backup-sync|verify-backup|test-restore|restore|rollback|repair-maps|update)
+  check|backup|backup-sync|backup-fetch|verify-backup|test-restore|restore|rollback|repair-maps|update)
     python3 "$NOMAD_ROOT/scripts/maintenance.py" "$@"
     ;;
   backup-connect)
@@ -52,7 +52,7 @@ case "${1:-status}" in
     open "$backup_share"
     ;;
   *)
-    echo 'Usage: nomad {start|stop|restart|status|check|logs [service]|open|backup|backup-sync|backup-connect|test-restore PATH|restore PATH|rollback [PATH]|repair-maps|update [--check]}' >&2
+    echo 'Usage: nomad {start|stop|restart|status|check|logs [service]|open|backup|backup-sync|backup-fetch ID|backup-connect|test-restore PATH|restore PATH|rollback [PATH]|repair-maps|update [--check]}' >&2
     exit 2
     ;;
 esac
