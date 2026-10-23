@@ -159,13 +159,19 @@ class WindowsBackup:
             self.verify(local, final)
             return final
         rows = self.hashes(partial, expected)
+        uploaded = False
         # Publish the manifest last; incomplete transfers remain visibly staged.
         for name in [n for n in expected if n != 'manifest.json'] + ['manifest.json']:
-            if rows.get(name, {}).get('sha256') == expected[name]:
+            row = rows.get(name, {})
+            if row.get('sha256') == expected[name] and row.get('bytes') == (local / name).stat().st_size:
                 continue
             print('Sending ' + name + ' through SSH...', flush=True)
             self.upload(partial, local / name)
-        self.verify(local, partial)
+            uploaded = True
+        # A resumed, already matching copy has just passed a complete uncached
+        # verification. Re-read only when this invocation changed its contents.
+        if uploaded:
+            self.verify(local, partial)
         source = self.remote_root + '\\' + partial
         target = self.remote_root + '\\' + final
         self.run('[IO.Directory]::Move(' + ps_quote(source) + ',' + ps_quote(target) + ')')

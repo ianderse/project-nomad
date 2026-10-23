@@ -65,6 +65,23 @@ class WindowsBackupTest(unittest.TestCase):
         packed = launcher.split("FromBase64String('")[1].split("')")[0]
         self.assertTrue(gzip.decompress(base64.b64decode(packed)).decode().endswith(source))
 
+    def test_verified_staged_backup_is_published_without_duplicate_full_read(self):
+        local = self.root / '20261023T183840Z-ae53f7'
+        local.mkdir()
+        (local / 'files.tar').write_bytes(b'archive')
+        (local / 'manifest.json').write_text(json.dumps({'sha256': {'files.tar': module.digest(local / 'files.tar')}}))
+        rows = {name: {'sha256': module.digest(local / name), 'bytes': (local / name).stat().st_size}
+                for name in ['files.tar', 'manifest.json']}
+        with patch.object(self.remote, 'hashes', side_effect=[{}, rows]) as hashes, \
+             patch.object(self.remote, 'upload') as upload, \
+             patch.object(self.remote, 'verify') as verify, \
+             patch.object(self.remote, 'run') as run:
+            self.assertEqual(self.remote.mirror(local), local.name)
+        self.assertEqual(hashes.call_count, 2)
+        upload.assert_not_called()
+        verify.assert_not_called()
+        self.assertIn('[IO.Directory]::Move', run.call_args.args[0])
+
 
 if __name__ == '__main__':
     unittest.main()
