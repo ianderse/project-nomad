@@ -4,7 +4,7 @@ import { DockerService } from '#services/docker_service'
 import { ServiceSlim } from '../../types/services.js'
 import logger from '@adonisjs/core/services/logger'
 import si from 'systeminformation'
-import { CandidateDriveResponse, GpuHealthStatus, NomadDiskInfo, NomadDiskInfoRaw, SystemInformationResponse } from '../../types/system.js'
+import { CandidateDriveResponse, GpuHealthStatus, HostSystemInfo, NomadDiskInfo, NomadDiskInfoRaw, SystemInformationResponse } from '../../types/system.js'
 import { SERVICE_NAMES } from '../../constants/service_names.js'
 import { readFileSync } from 'fs'
 import fs from 'node:fs/promises'
@@ -438,10 +438,26 @@ export class SystemService {
         // Docker info query failed, skip host-level enrichment
       }
 
+      let host: HostSystemInfo | undefined
+      try {
+        // Written on the Mac by the external profile. Keep VM usage/allocation
+        // unchanged; the host's unified memory is not the container's budget.
+        const snapshot = JSON.parse(await fs.readFile(path.join(process.cwd(), 'storage/host-system.json'), 'utf8'))
+        if (snapshot?.os?.platform === 'darwin' &&
+            typeof snapshot.cpu?.brand === 'string' &&
+            Number.isFinite(snapshot.cpu?.cores) && snapshot.cpu.cores > 0 &&
+            Number.isFinite(snapshot.memoryTotal) && snapshot.memoryTotal > 0) {
+          host = snapshot
+        }
+      } catch {
+        // Installations without host collection continue to show their runtime.
+      }
+
       return {
         cpu,
         mem,
         os,
+        host,
         disk,
         currentLoad,
         fsSize,

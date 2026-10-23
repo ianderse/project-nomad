@@ -1,0 +1,58 @@
+#!/bin/bash
+set -euo pipefail
+NOMAD_ROOT="${NOMAD_ROOT:-$(/usr/bin/python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve().parent)' "${BASH_SOURCE[0]}")}"
+source "$NOMAD_ROOT/scripts/environment.sh"
+if [[ "${1:-status}" == start || "${1:-status}" == check ]]; then
+  python3 "$NOMAD_ROOT/scripts/host-system.py"
+fi
+compose() { docker compose --env-file "$NOMAD_ROOT/.env" -f "$NOMAD_ROOT/compose.json" "$@"; }
+case "${1:-status}" in
+  start)
+    colima start
+    compose up -d
+    # Also resume applications installed through NOMAD's Supply Depot.
+    stopped=$(docker ps -aq --filter 'name=^/nomad_' --filter status=exited)
+    if [[ -n "$stopped" ]]; then docker start $stopped; fi
+    for attempt in {1..90}; do
+      if curl -fsS --max-time 5 http://127.0.0.1:8080/api/health >/dev/null 2>&1; then
+        if ! python3 "$NOMAD_ROOT/scripts/maintenance.py" check; then
+          echo 'NOMAD started, but a service failed readiness checks. See the failures above.' >&2
+          exit 1
+        fi
+        echo 'NOMAD is ready: http://localhost:8080'
+        exit 0
+      fi
+      sleep 1
+    done
+    echo 'NOMAD is starting. Run nomad logs to inspect progress.' >&2
+    exit 1
+    ;;
+  stop)
+    colima stop
+    ;;
+  restart)
+    "$NOMAD_ROOT/nomad" stop
+    "$NOMAD_ROOT/nomad" start
+    ;;
+  status)
+    colima status
+    docker ps -a --filter 'name=^/nomad_' --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+    ;;
+  logs)
+    compose logs --tail 80 "${@:2}"
+    ;;
+  open)
+    open http://localhost:8080
+    ;;
+  check|backup|backup-sync|verify-backup|test-restore|restore|rollback|repair-maps|update)
+    python3 "$NOMAD_ROOT/scripts/maintenance.py" "$@"
+    ;;
+  backup-connect)
+    backup_share=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["backup_share"])' "$NOMAD_ROOT/state/maintenance.json")
+    open "$backup_share"
+    ;;
+  *)
+    echo 'Usage: nomad {start|stop|restart|status|check|logs [service]|open|backup|backup-sync|backup-connect|test-restore PATH|restore PATH|rollback [PATH]|repair-maps|update [--check]}' >&2
+    exit 2
+    ;;
+esac

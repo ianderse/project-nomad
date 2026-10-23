@@ -69,3 +69,6 @@ coverage/
 # Python bytecode (install/nomad-translate helper scripts)
 __pycache__/
 *.pyc
+
+# External Colima deployment state belongs outside the source checkout.
+/install/macos/external/local/

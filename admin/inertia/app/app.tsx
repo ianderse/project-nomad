@@ -31,7 +31,9 @@ createInertiaApp({
   title: (title) => `${title} - ${appName}`,
 
   resolve: (name) => {
-    return resolvePageComponent(`../pages/${name}.tsx`, import.meta.glob('../pages/**/*.tsx'))
+    // Keep existing bookmarks and older Mac images on the same card catalog.
+    const page = name === 'settings/apps' ? 'settings/supply-depot' : name
+    return resolvePageComponent(`../pages/${page}.tsx`, import.meta.glob('../pages/**/*.tsx'))
   },
 
   setup({ el, App, props }) {

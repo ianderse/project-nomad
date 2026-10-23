@@ -7,10 +7,18 @@ export type GpuHealthStatus = {
   hasAppleMetal?: boolean
 }
 
+export type HostSystemInfo = {
+  capturedAt: string
+  os: Pick<Systeminformation.OsData, 'platform' | 'distro' | 'kernel' | 'arch' | 'hostname'>
+  cpu: Pick<Systeminformation.CpuData, 'manufacturer' | 'brand' | 'cores' | 'physicalCores'>
+  memoryTotal: number
+}
+
 export type SystemInformationResponse = {
   cpu: Systeminformation.CpuData
   mem: Systeminformation.MemData
-  os: Systeminformation.OsData
+  os: Systeminformation.OsData & { nomadHost?: HostSystemInfo }
+  host?: HostSystemInfo
   disk: NomadDiskInfo[]
   currentLoad: Systeminformation.CurrentLoadData
   fsSize: Systeminformation.FsSizeData[]

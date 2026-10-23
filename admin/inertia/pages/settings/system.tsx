@@ -28,6 +28,11 @@ export default function SettingsPage(props: {
     initialData: props.system.info,
   })
   const { addNotification } = useNotifications()
+  // The extra os property supports the pinned image's local compatibility
+  // preload; images built from this fork return the explicit host field.
+  const host = info?.host ?? info?.os.nomadHost
+  const displayOs = host?.os ?? info?.os
+  const displayCpu = host?.cpu ?? info?.cpu
   const { openModal, closeAllModals } = useModals()
 
   const [gpuBannerDismissed, setGpuBannerDismissed] = useState(() => {
@@ -180,7 +185,7 @@ export default function SettingsPage(props: {
               <div className="bg-desert-white rounded-lg p-6 border border-desert-stone-light shadow-sm hover:shadow-lg transition-shadow">
                 <CircularGauge
                   value={info?.currentLoad.currentLoad || 0}
-                  label="CPU Usage"
+                  label={host ? 'VM CPU Usage' : 'CPU Usage'}
                   size="lg"
                   variant="cpu"
                   subtext={`${info?.cpu.cores || 0} cores`}
@@ -190,7 +195,7 @@ export default function SettingsPage(props: {
               <div className="bg-desert-white rounded-lg p-6 border border-desert-stone-light shadow-sm hover:shadow-lg transition-shadow">
                 <CircularGauge
                   value={Number(memoryUsagePercent)}
-                  label="Memory Usage"
+                  label={host ? 'VM Memory Usage' : 'Memory Usage'}
                   size="lg"
                   variant="memory"
                   subtext={`${formatBytes(memoryUsed)} / ${formatBytes(info?.mem.total || 0)}`}
@@ -200,7 +205,7 @@ export default function SettingsPage(props: {
               <div className="bg-desert-white rounded-lg p-6 border border-desert-stone-light shadow-sm hover:shadow-lg transition-shadow">
                 <CircularGauge
                   value={Number(swapUsagePercent)}
-                  label="Swap Usage"
+                  label={host ? 'VM Swap Usage' : 'Swap Usage'}
                   size="lg"
                   variant="disk"
                   subtext={`${formatBytes(info?.mem.swapused || 0)} / ${formatBytes(info?.mem.swaptotal || 0)}`}
@@ -217,32 +222,46 @@ export default function SettingsPage(props: {
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <InfoCard
-                title="Operating System"
+                title={host ? 'Mac Operating System' : 'Operating System'}
                 icon={<IconDeviceDesktop className="w-6 h-6" />}
                 variant="elevated"
                 data={[
-                  { label: 'Distribution', value: info?.os.distro },
-                  { label: 'Kernel Version', value: info?.os.kernel },
-                  { label: 'Architecture', value: info?.os.arch },
-                  { label: 'Hostname', value: info?.os.hostname },
-                  { label: 'Platform', value: info?.os.platform },
+                  { label: 'Distribution', value: displayOs?.distro },
+                  { label: 'Kernel Version', value: displayOs?.kernel },
+                  { label: 'Architecture', value: displayOs?.arch },
+                  { label: 'Hostname', value: displayOs?.hostname },
+                  { label: 'Platform', value: displayOs?.platform },
                 ]}
               />
               <InfoCard
-                title="Processor"
+                title={host ? 'Mac Processor' : 'Processor'}
                 icon={<IconCpu className="w-6 h-6" />}
                 variant="elevated"
                 data={[
-                  { label: 'Manufacturer', value: info?.cpu.manufacturer },
-                  { label: 'Brand', value: info?.cpu.brand },
-                  { label: 'Cores', value: info?.cpu.cores },
-                  { label: 'Physical Cores', value: info?.cpu.physicalCores },
-                  {
+                  { label: 'Manufacturer', value: displayCpu?.manufacturer },
+                  { label: 'Brand', value: displayCpu?.brand },
+                  { label: 'Cores', value: displayCpu?.cores },
+                  { label: 'Physical Cores', value: displayCpu?.physicalCores },
+                  ...(!host ? [{
                     label: 'Virtualization',
                     value: info?.cpu.virtualization ? 'Enabled' : 'Disabled',
-                  },
+                  }] : []),
                 ]}
               />
+              {host && (
+                <InfoCard
+                  title="Mac and NOMAD VM"
+                  icon={<IconServer className="w-6 h-6" />}
+                  variant="elevated"
+                  data={[
+                    { label: 'Mac Unified Memory', value: formatBytes(host.memoryTotal) },
+                    { label: 'VM RAM Allocation', value: formatBytes(info?.mem.total || 0) },
+                    { label: 'VM CPU Cores', value: info?.cpu.cores },
+                    { label: 'VM Operating System', value: info?.os.distro },
+                    { label: 'VM Hostname', value: info?.os.hostname },
+                  ]}
+                />
+              )}
               {/* Native Ollama on macOS uses Apple Silicon Metal directly —
                   no Docker passthrough, no GPU "fix" needed. The Reinstall
                   button on this banner short-circuits with a CLI-only error
@@ -288,8 +307,14 @@ export default function SettingsPage(props: {
           <section className="mb-12">
             <h2 className="text-2xl font-bold text-desert-green mb-6 flex items-center gap-2">
               <div className="w-1 h-6 bg-desert-green" />
-              Memory Allocation
+              {host ? 'NOMAD VM Memory Allocation' : 'Memory Allocation'}
             </h2>
+            {host && (
+              <p className="mb-4 text-text-secondary">
+                The Mac has {formatBytes(host.memoryTotal)} of unified memory. The AI assistant
+                runs on the Mac; the usage figures below cover NOMAD’s Linux VM.
+              </p>
+            )}
             <div className="bg-desert-white rounded-lg p-8 border border-desert-stone-light shadow-sm hover:shadow-lg transition-shadow">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-8">
                 <div className="text-center">

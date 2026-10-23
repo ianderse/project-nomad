@@ -1,0 +1,16 @@
+#!/bin/bash
+export NOMAD_ROOT="${NOMAD_ROOT:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
+if ! /usr/bin/python3 "$NOMAD_ROOT/scripts/drive-guard.py"; then
+  return 1 2>/dev/null || exit 1
+fi
+export PATH="$NOMAD_ROOT/bin:$NOMAD_ROOT/runtime/lima/bin:/opt/homebrew/bin:$PATH:/usr/bin:/bin:/usr/sbin:/sbin"
+export COLIMA_HOME="$NOMAD_ROOT/runtime/colima"
+export COLIMA_PROFILE=nomad
+export COLIMA_CACHE_HOME="$NOMAD_ROOT/cache/colima"
+export LIMA_HOME="$NOMAD_ROOT/runtime/colima/_lima"
+export DOCKER_CONFIG="$NOMAD_ROOT/docker"
+export DOCKER_CONTEXT=colima-nomad
+export XDG_CACHE_HOME="$NOMAD_ROOT/cache"
+export TMPDIR="$NOMAD_ROOT/tmp/"
+export PIP_CACHE_DIR="$NOMAD_ROOT/cache/pip"
+export PYTHONDONTWRITEBYTECODE=1

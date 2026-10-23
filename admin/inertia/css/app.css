@@ -47,6 +47,8 @@
   --color-border-subtle: #e5e7eb;
   --color-btn-green-hover: #353518;
   --color-btn-green-active: #2a2a15;
+  --color-on-accent: #f6f6f4;
+  --color-text-danger: #994444;
 }
 
 body {
@@ -95,6 +97,7 @@ body {
   --color-text-primary: #f7eedc;
   --color-text-secondary: #afafa5;
   --color-text-muted: #8f8f82;
+  --color-text-danger: #f0a1a1;
   --color-border-default: #424420;
   --color-border-subtle: #353420;
   --color-btn-green-hover: #474a28;

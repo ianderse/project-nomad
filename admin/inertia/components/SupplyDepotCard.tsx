@@ -181,8 +181,7 @@ export default function SupplyDepotCard({
     // pill plus host-command Update/Reset. On 'omlx' chat runs on Apple MLX and
     // this native Ollama is only the embeddings sidecar, so the Ollama "Update"
     // is omitted (it wouldn't update the chat engine); the whole AI stack is
-    // updated host-side via `nomad upgrade`. "Reset" recovers the host Ollama
-    // engine on both backends.
+    // updated host-side. An Ollama reset does not manage the shared oMLX server.
     if (isNativeOllama && record.service_name === SERVICE_NAMES.OLLAMA) {
       const isMlx = aiBackend === 'omlx'
       return (
@@ -198,13 +197,13 @@ export default function SupplyDepotCard({
             {isMlx ? 'Apple MLX (Metal)' : 'Native (Metal)'}
           </span>
           {!isMlx && <HostCommandButton cmd="upgrade-ollama" label="Update" disabled={!isOnline} />}
-          <HostCommandButton
+          {!isMlx && <HostCommandButton
             cmd="reset-ollama"
             label="Reset"
             icon="IconRefresh"
             variant="action"
             successLabel="✓ Reset complete"
-          />
+          />}
         </div>
       )
     }
@@ -273,11 +272,11 @@ export default function SupplyDepotCard({
   }
 
   return (
-    <div className="flex flex-col rounded-lg border border-desert-tan-lighter bg-surface-primary p-5 shadow-sm">
+    <article aria-label={record.friendly_name || record.service_name} className="flex min-w-0 flex-col rounded-lg border border-border-default bg-surface-primary p-5 shadow-sm">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <h3 className="truncate text-lg font-semibold text-desert-stone-dark">
+            <h3 className="truncate text-lg font-semibold text-text-primary">
               {record.friendly_name || record.service_name}
             </h3>
             {record.installed && (
@@ -318,6 +317,6 @@ export default function SupplyDepotCard({
       </div>
 
       <div className="mt-4 border-t border-desert-tan-lighter pt-4">{renderActions()}</div>
-    </div>
+    </article>
   )
 }

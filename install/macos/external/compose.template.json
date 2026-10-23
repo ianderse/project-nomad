@@ -1,0 +1,332 @@
+{
+  "name": "project-nomad",
+  "services": {
+    "admin": {
+      "image": "ghcr.io/caweis/project-nomad-macos-arm64@sha256:efd446e082e85df7dd2c02737c87716adb2201b28ff8fc487b31f20ac9cded49",
+      "platform": "linux/arm64",
+      "container_name": "nomad_admin",
+      "restart": "unless-stopped",
+      "ports": [
+        "127.0.0.1:8080:8080"
+      ],
+      "extra_hosts": [
+        "host.lima.internal:192.168.5.2"
+      ],
+      "volumes": [
+        "${NOMAD_ROOT}/storage:/app/storage",
+        "/var/run/docker.sock:/var/run/docker.sock",
+        "${NOMAD_ROOT}/state/update-shared:/app/update-shared",
+        "${NOMAD_ROOT}/scripts/storage-report.cjs:/app/local-patches/storage-report.cjs:ro"
+      ],
+      "environment": {
+        "NODE_ENV": "production",
+        "PORT": "8080",
+        "HOST": "0.0.0.0",
+        "URL": "http://localhost:8080",
+        "LOG_LEVEL": "info",
+        "APP_KEY": "${APP_KEY}",
+        "DB_HOST": "mysql",
+        "DB_PORT": "3306",
+        "DB_DATABASE": "nomad",
+        "DB_USER": "nomad_user",
+        "DB_PASSWORD": "${DB_PASSWORD}",
+        "DB_NAME": "nomad",
+        "DB_SSL": "false",
+        "REDIS_HOST": "redis",
+        "REDIS_PORT": "6379",
+        "NOMAD_STORAGE_PATH": "${NOMAD_ROOT}/storage",
+        "APPLE_CHIP_MODEL": "${APPLE_CHIP_MODEL}",
+        "APPLE_GPU_MODEL": "${APPLE_GPU_MODEL}",
+        "HOST_PLATFORM": "darwin",
+        "OLLAMA_HOST": "http://nomad_ai_adapter:11436",
+        "NOMAD_AI_BACKEND": "omlx",
+        "NODE_OPTIONS": "--require=/app/local-patches/storage-report.cjs"
+      },
+      "depends_on": {
+        "mysql": {
+          "condition": "service_healthy"
+        },
+        "redis": {
+          "condition": "service_healthy"
+        },
+        "ai-adapter": {
+          "condition": "service_healthy"
+        }
+      },
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "curl",
+          "-f",
+          "http://localhost:8080/api/health"
+        ],
+        "interval": "30s",
+        "timeout": "10s",
+        "retries": 5
+      },
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-size": "10m",
+          "max-file": "3"
+        }
+      },
+      "command": [
+        "sh",
+        "-c",
+        "node ace migration:run --force && node ace db:seed && exec node bin/server.js"
+      ]
+    },
+    "mysql": {
+      "image": "mysql@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b",
+      "platform": "linux/arm64",
+      "container_name": "nomad_mysql",
+      "restart": "unless-stopped",
+      "environment": {
+        "MYSQL_ROOT_PASSWORD": "${MYSQL_ROOT_PASSWORD}",
+        "MYSQL_DATABASE": "nomad",
+        "MYSQL_USER": "nomad_user",
+        "MYSQL_PASSWORD": "${DB_PASSWORD}"
+      },
+      "volumes": [
+        "${NOMAD_ROOT}/state/mysql:/var/lib/mysql"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "mysqladmin",
+          "ping",
+          "-h",
+          "localhost"
+        ],
+        "interval": "10s",
+        "timeout": "10s",
+        "retries": 15
+      },
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-size": "10m",
+          "max-file": "3"
+        }
+      }
+    },
+    "redis": {
+      "image": "redis@sha256:57e4255cc971b1c8d6f8a6ca283ac01bc3ecdd914273ef6bfaede87aaecd6541",
+      "platform": "linux/arm64",
+      "container_name": "nomad_redis",
+      "restart": "unless-stopped",
+      "volumes": [
+        "${NOMAD_ROOT}/state/redis:/data"
+      ],
+      "command": [
+        "redis-server",
+        "--appendonly",
+        "yes"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "redis-cli",
+          "ping"
+        ],
+        "interval": "10s",
+        "timeout": "5s",
+        "retries": 5
+      },
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-size": "10m",
+          "max-file": "3"
+        }
+      }
+    },
+    "embeddings": {
+      "image": "ollama/ollama@sha256:5c6707fcf2e1a30cffe2ecb7e315584fc87747c389327e4bc711c4959aa1eecc",
+      "platform": "linux/arm64",
+      "container_name": "nomad_embeddings",
+      "restart": "unless-stopped",
+      "ports": [
+        "127.0.0.1:11435:11434"
+      ],
+      "volumes": [
+        "${NOMAD_ROOT}/storage/embedding-models:/root/.ollama"
+      ],
+      "environment": {
+        "OLLAMA_NUM_PARALLEL": "1"
+      },
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-size": "10m",
+          "max-file": "3"
+        }
+      },
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "ollama",
+          "list"
+        ],
+        "interval": "30s",
+        "timeout": "10s",
+        "retries": 3
+      }
+    },
+    "ai-adapter": {
+      "build": {
+        "context": "${NOMAD_ROOT}",
+        "dockerfile": "scripts/adapter.Dockerfile"
+      },
+      "image": "nomad-local/ai-adapter:external",
+      "container_name": "nomad_ai_adapter",
+      "restart": "unless-stopped",
+      "extra_hosts": [
+        "host.lima.internal:192.168.5.2"
+      ],
+      "volumes": [
+        "${NOMAD_RELEASE_SOURCE}/install/macos/omlx-proxy/vendor:/adapter:ro",
+        "${NOMAD_ROOT}/state/omlx-key:/run/secrets/omlx-key:ro",
+        "${NOMAD_ROOT}/state/model-map.json:/config/model-map.json:ro"
+      ],
+      "environment": {
+        "OPENAI_API_BASE_URL": "http://host.lima.internal:8000/v1",
+        "NOMAD_OMLX_BASE": "http://host.lima.internal:8000",
+        "NOMAD_EMBED_URL": "http://nomad_embeddings:11434",
+        "MODEL_MAPPING_FILE": "/config/model-map.json",
+        "LOG_LEVEL": "WARNING",
+        "PYTHONDONTWRITEBYTECODE": "1"
+      },
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-size": "10m",
+          "max-file": "3"
+        }
+      },
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:11436/api/tags\",timeout=5).read()"
+        ],
+        "interval": "30s",
+        "timeout": "10s",
+        "retries": 3,
+        "start_period": "15s"
+      },
+      "depends_on": {
+        "embeddings": {
+          "condition": "service_healthy"
+        }
+      }
+    },
+    "worker": {
+      "image": "ghcr.io/caweis/project-nomad-macos-arm64@sha256:efd446e082e85df7dd2c02737c87716adb2201b28ff8fc487b31f20ac9cded49",
+      "platform": "linux/arm64",
+      "container_name": "nomad_admin_worker",
+      "restart": "unless-stopped",
+      "extra_hosts": [
+        "host.lima.internal:192.168.5.2"
+      ],
+      "volumes": [
+        "${NOMAD_ROOT}/storage:/app/storage",
+        "/var/run/docker.sock:/var/run/docker.sock",
+        "${NOMAD_ROOT}/state/update-shared:/app/update-shared",
+        "${NOMAD_ROOT}/scripts/storage-report.cjs:/app/local-patches/storage-report.cjs:ro"
+      ],
+      "environment": {
+        "NODE_ENV": "production",
+        "PORT": "8080",
+        "HOST": "0.0.0.0",
+        "URL": "http://localhost:8080",
+        "LOG_LEVEL": "info",
+        "APP_KEY": "${APP_KEY}",
+        "DB_HOST": "mysql",
+        "DB_PORT": "3306",
+        "DB_DATABASE": "nomad",
+        "DB_USER": "nomad_user",
+        "DB_PASSWORD": "${DB_PASSWORD}",
+        "DB_NAME": "nomad",
+        "DB_SSL": "false",
+        "REDIS_HOST": "redis",
+        "REDIS_PORT": "6379",
+        "NOMAD_STORAGE_PATH": "${NOMAD_ROOT}/storage",
+        "APPLE_CHIP_MODEL": "${APPLE_CHIP_MODEL}",
+        "APPLE_GPU_MODEL": "${APPLE_GPU_MODEL}",
+        "HOST_PLATFORM": "darwin",
+        "OLLAMA_HOST": "http://nomad_ai_adapter:11436",
+        "NOMAD_AI_BACKEND": "omlx",
+        "NODE_OPTIONS": "--require=/app/local-patches/storage-report.cjs"
+      },
+      "depends_on": {
+        "admin": {
+          "condition": "service_healthy"
+        }
+      },
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-size": "10m",
+          "max-file": "3"
+        }
+      },
+      "command": [
+        "node",
+        "ace",
+        "queue:work",
+        "--all"
+      ]
+    },
+    "qdrant": {
+      "image": "qdrant/qdrant@sha256:0425e3e03e7fd9b3dc95c4214546afe19de2eb2e28ca621441a56663ac6e1f46",
+      "platform": "linux/arm64",
+      "container_name": "nomad_qdrant",
+      "restart": "unless-stopped",
+      "environment": {
+        "QDRANT__TELEMETRY_DISABLED": "true"
+      },
+      "volumes": [
+        "qdrant-data:/qdrant/storage"
+      ],
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-size": "10m",
+          "max-file": "3"
+        }
+      }
+    },
+    "dozzle": {
+      "image": "amir20/dozzle@sha256:d383abf0fee72a8037d6ec6474424e56d752a52208e0ed70f4805e9d86a77830",
+      "platform": "linux/arm64",
+      "container_name": "nomad_dozzle",
+      "restart": "unless-stopped",
+      "ports": [
+        "127.0.0.1:9999:8080"
+      ],
+      "volumes": [
+        "/var/run/docker.sock:/var/run/docker.sock:ro"
+      ],
+      "environment": {
+        "DOZZLE_ENABLE_ACTIONS": "false",
+        "DOZZLE_ENABLE_SHELL": "false"
+      },
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-size": "10m",
+          "max-file": "3"
+        }
+      }
+    }
+  },
+  "volumes": {
+    "qdrant-data": {
+      "name": "nomad-qdrant-data",
+      "external": true
+    }
+  }
+}

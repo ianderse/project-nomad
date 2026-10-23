@@ -65,9 +65,9 @@ const StyledButton: React.FC<StyledButtonProps> = ({
     switch (variant) {
       case 'primary':
         return clsx(
-          'bg-desert-green text-desert-white',
-          'hover:bg-desert-green-dark hover:shadow-lg',
-          'active:bg-desert-green-darker',
+          'bg-desert-green text-on-accent',
+          'hover:bg-btn-green-hover hover:shadow-lg',
+          'active:bg-btn-green-active',
           'disabled:bg-desert-green-light disabled:text-desert-stone-light',
           baseTransition,
           baseHover
@@ -189,7 +189,7 @@ const StyledButton: React.FC<StyledButtonProps> = ({
         getSizeClasses(),
         getVariantClasses(),
         isDisabled ? 'pointer-events-none opacity-60' : 'cursor-pointer',
-        'items-center justify-center rounded-md font-semibold focus:outline-none focus:ring-2 focus:ring-desert-green-light focus:ring-offset-2 focus:ring-offset-desert-sand disabled:cursor-not-allowed disabled:shadow-none',
+        'shrink-0 items-center justify-center gap-0 whitespace-nowrap rounded-md font-semibold focus:outline-none focus:ring-2 focus:ring-desert-green-light focus:ring-offset-2 focus:ring-offset-desert-sand disabled:cursor-not-allowed disabled:shadow-none',
         className
       )}
       {...props}

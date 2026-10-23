@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import StyledButton from '~/components/StyledButton'
 import DynamicIcon, { DynamicIconName } from '~/components/DynamicIcon'
 
@@ -42,24 +43,58 @@ export interface AppManageMenuProps {
 export default function AppManageMenu({ items, disabled }: AppManageMenuProps) {
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const menuId = useId()
+  const [position, setPosition] = useState<{ left: number; top: number } | null>(null)
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setPosition(null)
+      return
+    }
+    const place = () => {
+      if (!containerRef.current || !panelRef.current) return
+      const trigger = containerRef.current.getBoundingClientRect()
+      const panel = panelRef.current.getBoundingClientRect()
+      const gap = 8
+      const top = trigger.bottom + gap + panel.height <= window.innerHeight
+        ? trigger.bottom + gap
+        : Math.max(gap, trigger.top - gap - panel.height)
+      setPosition({
+        left: Math.max(gap, Math.min(trigger.right - panel.width, window.innerWidth - panel.width - gap)),
+        top,
+      })
+    }
+    place()
+    panelRef.current?.querySelector<HTMLElement>('button:not(:disabled), input:not(:disabled)')?.focus()
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', place, true)
+    return () => {
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', place, true)
+    }
+  }, [open])
 
   // Click-outside + Escape close the panel. Listeners only attach while open.
   useEffect(() => {
     if (!open) return
 
     function onPointerDown(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      if (!containerRef.current?.contains(e.target as Node) && !panelRef.current?.contains(e.target as Node)) {
         setOpen(false)
       }
     }
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOpen(false)
+      if (e.key === 'Escape') {
+        setOpen(false)
+        containerRef.current?.querySelector('button')?.focus()
+      }
     }
 
-    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('pointerdown', onPointerDown)
     document.addEventListener('keydown', onKeyDown)
     return () => {
-      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('pointerdown', onPointerDown)
       document.removeEventListener('keydown', onKeyDown)
     }
   }, [open])
@@ -75,18 +110,35 @@ export default function AppManageMenu({ items, disabled }: AppManageMenuProps) {
     <div ref={containerRef} className="relative inline-flex">
       <StyledButton
         variant="neutral"
+        size="sm"
+        className="h-9 w-9 shrink-0 p-0"
         onClick={() => setOpen((v) => !v)}
         disabled={disabled}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="More actions"
+        aria-controls={open ? menuId : undefined}
       >
         <DynamicIcon icon="IconDots" className="h-4 w-4" />
       </StyledButton>
-      {open && (
+      {open && createPortal(
         <div
+          id={menuId}
+          ref={panelRef}
           role="menu"
-          className="absolute right-0 top-full z-50 mt-1 w-52 overflow-hidden rounded-md border border-desert-tan-lighter bg-surface-primary py-1 shadow-lg"
+          aria-label="App actions"
+          style={{ position: 'fixed', left: position?.left ?? 0, top: position?.top ?? 0,
+            visibility: position ? 'visible' : 'hidden', maxHeight: 'calc(100dvh - 16px)' }}
+          className="z-[1000] w-60 max-w-[calc(100vw-16px)] overflow-y-auto rounded-lg border border-border-default bg-surface-elevated py-1 text-text-primary shadow-xl"
+          onKeyDown={(event) => {
+            if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+            event.preventDefault()
+            const rows = Array.from(panelRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)') ?? [])
+            const current = rows.indexOf(document.activeElement as HTMLElement)
+            const next = event.key === 'Home' ? 0 : event.key === 'End' ? rows.length - 1
+              : (current + (event.key === 'ArrowDown' ? 1 : -1) + rows.length) % rows.length
+            rows[next]?.focus()
+          }}
         >
           {items.map((item, i) => {
             if (item.kind === 'divider') {
@@ -98,7 +150,7 @@ export default function AppManageMenu({ items, disabled }: AppManageMenuProps) {
               return (
                 <label
                   key={i}
-                  className="flex cursor-pointer select-none items-center justify-between gap-2 px-3 py-2 text-sm text-desert-stone-dark hover:bg-desert-sand"
+                  className="flex cursor-pointer select-none items-center justify-between gap-2 px-3 py-2 text-sm text-text-primary hover:bg-surface-secondary"
                 >
                   {item.label}
                   <input
@@ -118,8 +170,8 @@ export default function AppManageMenu({ items, disabled }: AppManageMenuProps) {
                 role="menuitem"
                 className={`${itemBase} ${
                   item.danger
-                    ? 'text-desert-red hover:bg-desert-red-light hover:text-desert-white'
-                    : 'text-desert-stone-dark hover:bg-desert-sand'
+                    ? 'text-text-danger hover:bg-surface-secondary'
+                    : 'text-text-primary hover:bg-surface-secondary'
                 }`}
                 onClick={() => {
                   setOpen(false)
@@ -132,7 +184,7 @@ export default function AppManageMenu({ items, disabled }: AppManageMenuProps) {
               </button>
             )
           })}
-        </div>
+        </div>, document.body
       )}
     </div>
   )

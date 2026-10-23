@@ -1,0 +1,10 @@
+**
+!scripts/
+!scripts/adapter.Dockerfile
+!scripts/container-adapter.py
+!source/
+!source/install/
+!source/install/macos/
+!source/install/macos/omlx-proxy/
+!source/install/macos/omlx-proxy/vendor/
+!source/install/macos/omlx-proxy/vendor/requirements.txt
